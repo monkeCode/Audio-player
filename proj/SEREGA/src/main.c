@@ -20,6 +20,7 @@
 #include "main.h"
 #include "i2c.h"
 #include "gpio.h"
+#include "math.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -28,12 +29,12 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
+#define SAMPLE_RATE 1000 
+#define SINE_FREQUENCY 400
 /* USER CODE END PTD */
-
+TIM_HandleTypeDef htim2;
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -55,8 +56,25 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+uint8_t dac_addr = 0b01100000; // адрес с учетом A0 к GND
 /* USER CODE END 0 */
+
+HAL_StatusTypeDef DAC_write(int value)
+{
+  uint8_t buffer[3]; 
+    buffer[0] = 0b01000000; // Установка буфера DAC в режиме записи
+    buffer[1] = value >> 4;  // Наиболее значимые биты
+    buffer[2] = value & 0x0F; // Младшие биты
+
+    if (HAL_I2C_IsDeviceReady(&hi2c1, dac_addr << 1, 2, HAL_MAX_DELAY) == HAL_OK)
+    {
+      if (HAL_I2C_Master_Transmit(&hi2c1, dac_addr << 1, buffer, sizeof(buffer), HAL_MAX_DELAY) == HAL_OK)
+      {
+        return HAL_OK;
+      }
+    }
+    return HAL_ERROR;
+}
 
 /**
   * @brief  The application entry point.
@@ -79,7 +97,6 @@ int main(void)
 
   /* Configure the system clock */
   SystemClock_Config();
-
   /* USER CODE BEGIN SysInit */
 
   /* USER CODE END SysInit */
@@ -88,16 +105,19 @@ int main(void)
   MX_GPIO_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  float val = 0;
   while (1)
   {
     /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
+     if(DAC_write(sin(val)*2048 + 2047) == HAL_OK)
+      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+    else
+          HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+    val += 0.01 ;
   }
   /* USER CODE END 3 */
 }
@@ -137,10 +157,6 @@ void SystemClock_Config(void)
     Error_Handler();
   }
 }
-
-/* USER CODE BEGIN 4 */
-
-/* USER CODE END 4 */
 
 /**
   * @brief  This function is executed in case of error occurrence.
