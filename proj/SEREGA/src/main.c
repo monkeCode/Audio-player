@@ -19,8 +19,10 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "i2c.h"
+#include "spi.h"
+#include "tim.h"
 #include "gpio.h"
-#include "math.h"
+#include "Audio_Vich.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -29,10 +31,7 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-#define SAMPLE_RATE 1000 
-#define SINE_FREQUENCY 400
 /* USER CODE END PTD */
-TIM_HandleTypeDef htim2;
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 /* USER CODE END PD */
@@ -57,9 +56,10 @@ void SystemClock_Config(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 uint8_t dac_addr = 0b01100000; // адрес с учетом A0 к GND
+uint32_t inx = 0;
 /* USER CODE END 0 */
 
-HAL_StatusTypeDef DAC_write(int value)
+HAL_StatusTypeDef DAC_write(uint16_t value)
 {
   uint8_t buffer[3]; 
     buffer[0] = 0b01000000; // Установка буфера DAC в режиме записи
@@ -76,6 +76,26 @@ HAL_StatusTypeDef DAC_write(int value)
     return HAL_ERROR;
 }
 
+
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  if (htim->Instance == TIM3)
+    {
+    /* USER CODE END WHILE */
+      float val = (float)dataAudio_Vich[inx] / (float)0xff;
+      //float val = 1;
+      val *= 4095;
+      if(DAC_write((uint16_t)val) == HAL_OK)
+        //HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+        HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+      else
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+      inx +=1;
+      inx %= sizeof(dataAudio_Vich);
+    }
+}
+
 /**
   * @brief  The application entry point.
   * @retval int
@@ -90,11 +110,10 @@ int main(void)
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
-
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
   /* USER CODE BEGIN Init */
 
   /* USER CODE END Init */
-
   /* Configure the system clock */
   SystemClock_Config();
   /* USER CODE BEGIN SysInit */
@@ -104,20 +123,18 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_I2C1_Init();
+  MX_SPI1_Init();
+  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
   /* USER CODE END 2 */
-
+  HAL_TIM_Base_Start_IT(&htim3);
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  float val = 0;
+
   while (1)
   {
-    /* USER CODE END WHILE */
-     if(DAC_write(sin(val)*2048 + 2047) == HAL_OK)
-      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-    else
-          HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-    val += 0.01 ;
+    
+
   }
   /* USER CODE END 3 */
 }
