@@ -22,7 +22,8 @@
 #include "spi.h"
 #include "tim.h"
 #include "gpio.h"
-#include "Audio_Vich.h"
+#include "audio.h"
+#include "dma.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -38,8 +39,6 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-
-/* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
 
@@ -59,40 +58,61 @@ uint8_t dac_addr = 0b01100000; // адрес с учетом A0 к GND
 uint32_t inx = 0;
 /* USER CODE END 0 */
 
+uint8_t reverse_bits(uint8_t n)
+{
+  uint8_t n_mirror = 0;
+  for (uint8_t n_bits = 8; n_bits > 0; --n_bits)
+  {
+     n_mirror <<= 1;
+     n_mirror |= (n & 1);
+     n >>= 1;
+  }
+  return n_mirror;
+}
 HAL_StatusTypeDef DAC_write(uint16_t value)
 {
   uint8_t buffer[3]; 
     buffer[0] = 0b01000000; // Установка буфера DAC в режиме записи
-    buffer[1] = value >> 4;  // Наиболее значимые биты
-    buffer[2] = value & 0x0F; // Младшие биты
+    buffer[2] = value >> 4;  // Наиболее значимые биты
+    buffer[1] = value << 4; // Младшие биты
 
-    if (HAL_I2C_IsDeviceReady(&hi2c1, dac_addr << 1, 2, HAL_MAX_DELAY) == HAL_OK)
-    {
-      if (HAL_I2C_Master_Transmit(&hi2c1, dac_addr << 1, buffer, sizeof(buffer), HAL_MAX_DELAY) == HAL_OK)
-      {
-        return HAL_OK;
-      }
-    }
-    return HAL_ERROR;
+      return HAL_I2C_Master_Transmit(&hi2c1, dac_addr << 1, buffer, sizeof(buffer), HAL_MAX_DELAY);
 }
 
+HAL_StatusTypeDef DAC_write_dma(uint16_t value)
+{
+  uint8_t buffer[2]; 
+    buffer[0] = 0b00000000; 
+    buffer[0] += value << 4; // старшие биты
+    buffer[1] = value >> 8;  // младшие
 
+      return HAL_I2C_Master_Transmit_DMA(&hi2c1, dac_addr << 1, buffer, sizeof(buffer));
+}
+
+HAL_StatusTypeDef DAC_write_fast_mode(uint16_t value)
+{
+  uint8_t buffer[2]; 
+    buffer[0] = 0b00000000; 
+    buffer[0] += (uint8_t)(value << 4) & 0b00001111; // старшие биты
+    buffer[1] = value >> 8;  // младшие
+
+      return HAL_I2C_Master_Transmit(&hi2c1, dac_addr << 1, buffer, sizeof(buffer), HAL_MAX_DELAY);
+}
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   if (htim->Instance == TIM3)
     {
     /* USER CODE END WHILE */
-      float val = (float)dataAudio_Vich[inx] / (float)0xff;
-      //float val = 1;
-      val *= 4095;
-      if(DAC_write((uint16_t)val) == HAL_OK)
-        //HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-        HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-      else
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-      inx +=1;
-      inx %= sizeof(dataAudio_Vich);
+      //if(inx == sizeof(audio))
+      //{
+      //  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+      //  return;
+      //}
+      uint16_t val = ((uint16_t)audio[inx]) * 16;
+      DAC_write_fast_mode(val);
+      inx +=3;
+      inx %= sizeof(audio);
     }
 }
 
@@ -112,7 +132,6 @@ int main(void)
   HAL_Init();
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
   /* USER CODE BEGIN Init */
-
   /* USER CODE END Init */
   /* Configure the system clock */
   SystemClock_Config();
@@ -123,17 +142,18 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_I2C1_Init();
+  MX_DMA_Init();
   MX_SPI1_Init();
   MX_TIM3_Init();
+  
   /* USER CODE BEGIN 2 */
-  /* USER CODE END 2 */
   HAL_TIM_Base_Start_IT(&htim3);
+  /* USER CODE END 2 */
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
   while (1)
   {
-    
 
   }
   /* USER CODE END 3 */
@@ -186,6 +206,7 @@ void Error_Handler(void)
   __disable_irq();
   while (1)
   {
+    HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
   }
   /* USER CODE END Error_Handler_Debug */
 }
