@@ -43,7 +43,15 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+uint8_t low_byte(uint16_t x)
+{
+  return ((uint8_t)(x%256));
+} 
 
+uint8_t high_byte( uint16_t x)
+{
+  return ((uint8_t)(x / 256));
+} 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -58,20 +66,9 @@ uint8_t dac_addr = 0b01100000; // адрес с учетом A0 к GND
 uint32_t inx = 0;
 /* USER CODE END 0 */
 
-uint8_t reverse_bits(uint8_t n)
-{
-  uint8_t n_mirror = 0;
-  for (uint8_t n_bits = 8; n_bits > 0; --n_bits)
-  {
-     n_mirror <<= 1;
-     n_mirror |= (n & 1);
-     n >>= 1;
-  }
-  return n_mirror;
-}
 HAL_StatusTypeDef DAC_write(uint16_t value)
 {
-  uint8_t buffer[3]; 
+    uint8_t buffer[3]; 
     buffer[0] = 0b01000000; // Установка буфера DAC в режиме записи
     buffer[2] = value >> 4;  // Наиболее значимые биты
     buffer[1] = value << 4; // Младшие биты
@@ -83,8 +80,8 @@ HAL_StatusTypeDef DAC_write_dma(uint16_t value)
 {
   uint8_t buffer[2]; 
     buffer[0] = 0b00000000; 
-    buffer[0] += value << 4; // старшие биты
-    buffer[1] = value >> 8;  // младшие
+    buffer[0] += high_byte(value); // старшие биты
+    buffer[1] = low_byte(value);  // младшие
 
       return HAL_I2C_Master_Transmit_DMA(&hi2c1, dac_addr << 1, buffer, sizeof(buffer));
 }
@@ -93,12 +90,11 @@ HAL_StatusTypeDef DAC_write_fast_mode(uint16_t value)
 {
   uint8_t buffer[2]; 
     buffer[0] = 0b00000000; 
-    buffer[0] += (uint8_t)(value << 4) & 0b00001111; // старшие биты
-    buffer[1] = value >> 8;  // младшие
+    buffer[0] += high_byte(value) & 0b00001111; // старшие биты
+    buffer[1] = low_byte(value);  // младшие
 
       return HAL_I2C_Master_Transmit(&hi2c1, dac_addr << 1, buffer, sizeof(buffer), HAL_MAX_DELAY);
 }
-
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   if (htim->Instance == TIM3)
