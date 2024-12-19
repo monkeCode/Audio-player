@@ -24,6 +24,7 @@
 #include "gpio.h"
 #include "audio.h"
 #include "dma.h"
+#include "w25qxx.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -31,9 +32,13 @@
 #define    W25_RESET  0x99
 #define    W25_READ  0x03
 #define    W25_GET_JEDEC_ID  0x9f
+#define   W25_WRITE_ENABLE  0x06
+#define   W25_WRITE_DISABLE  0x04
+#define W25_PAGE 0x02
 
-#define mem_pin_set() HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET)
-#define mem_pin_reset() HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET)
+
+#define mem_pin_set() HAL_GPIO_WritePin(FLASH_CS_GPIO_Port, FLASH_CS_Pin, GPIO_PIN_RESET)
+#define mem_pin_reset() HAL_GPIO_WritePin(FLASH_CS_GPIO_Port, FLASH_CS_Pin, GPIO_PIN_SET)
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -68,8 +73,8 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-uint8_t dac_addr = 0b01100000; // адрес с учетом A0 к GND
-uint32_t inx = 0;
+const uint8_t dac_addr = 0b01100000; // адрес с учетом A0 к GND
+
 /* USER CODE END 0 */
 
 HAL_StatusTypeDef DAC_write(uint16_t value)
@@ -101,22 +106,7 @@ HAL_StatusTypeDef DAC_write_fast_mode(uint16_t value)
 
       return HAL_I2C_Master_Transmit(&hi2c1, dac_addr << 1, buffer, sizeof(buffer), HAL_MAX_DELAY);
 }
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-  if (htim->Instance == TIM3)
-    {
-    /* USER CODE END WHILE */
-      // if(inx == sizeof(audio))
-      // {
-      //   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-      //   return;
-      // }
-      uint16_t val = ((uint16_t)audio[inx]) * 1;
-//      DAC_write_fast_mode(val);
-      inx +=3;
-      inx %= sizeof(audio);
-    }
-}
+
 
 
 HAL_StatusTypeDef read_memory(uint8_t* buffer, uint8_t size)
@@ -159,7 +149,25 @@ uint32_t W25_Read_ID(void)
   return -1;
 }
 
-HAL_StatusTypeDef W25_Read_Data(uint32_t addr, uint8_t* data, uint32_t sz)
+HAL_StatusTypeDef W25_Write_Enable()
+{
+  uint8_t tx_buf[1] = {W25_WRITE_ENABLE};
+  mem_pin_set();
+  HAL_StatusTypeDef res =  write_memory(tx_buf, 1);
+  mem_pin_reset();
+  return res;
+}
+
+HAL_StatusTypeDef W25_Write_Disable()
+{
+  uint8_t tx_buf[1] = {W25_WRITE_DISABLE};
+  mem_pin_set();
+  HAL_StatusTypeDef res =  write_memory(tx_buf, 1);
+  mem_pin_reset();
+  return res;
+}
+
+HAL_StatusTypeDef W25_Read_Data(uint32_t addr, uint8_t* data)
 {
   uint8_t tx_buf[4];
   mem_pin_set();
@@ -170,27 +178,77 @@ HAL_StatusTypeDef W25_Read_Data(uint32_t addr, uint8_t* data, uint32_t sz)
   HAL_StatusTypeDef res =  write_memory(tx_buf, 4);
   if(res == HAL_OK)
   {
-    res = read_memory(data, sz);
+    res = read_memory(data, 1);
   }
   mem_pin_reset();
   return res;
 }
 
-HAL_StatusTypeDef W25_Write_Data(uint32_t addr, uint8_t* data, uint32_t sz)
+HAL_StatusTypeDef W25_Write_Data(uint32_t addr, uint8_t* data, uint8_t sz)
 {
   uint8_t tx_buf[4];
-  mem_pin_set();
-  tx_buf[0] = W25_WRITE;
+  tx_buf[0] = W25_PAGE;
   tx_buf[1] = (addr >> 16) & 0xFF;
   tx_buf[2] = (addr >> 8) & 0xFF;
   tx_buf[3] = addr & 0xFF;
-  HAL_StatusTypeDef res =  write_memory(tx_buf, 4);
-  if(res == HAL_OK)
-  {
-    res = read_memory(data, sz);
-  }
+  mem_pin_set();
+  write_memory(tx_buf, 4);
+  HAL_StatusTypeDef res = write_memory(data, sz);
   mem_pin_reset();
   return res;
+}
+
+
+void write_audio(uint8_t* audio,  uint32_t address_start)
+{
+  uint32_t addr = address_start;
+  for(int i = 0; i < sizeof(audio); i+=256)
+  {
+    uint8_t size = 255;
+    if(sizeof(audio) - i > 256)
+      size = sizeof(audio) - i;
+    W25_Write_Data(addr, audio[i], size);
+    addr += size;
+  }
+}
+
+void fill_buffer(uint8_t* buffer, uint16_t buffer_size, uint32_t addr_start)
+{
+  for(int i = 0; i < buffer_size; i++)
+  {
+    uint8_t rx;
+    W25_Read_Data(addr_start, &rx);
+    buffer[i] = rx;
+    addr_start += 1;
+  }
+}
+
+uint8_t buffer[256];
+uint32_t addr = 0;
+uint32_t inx = 0;
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  if (htim->Instance == TIM3)
+    {
+      // if(inx >= sizeof(buffer))
+      // {
+      //   fill_buffer(buffer, sizeof(buffer), addr);
+      //   addr += sizeof(buffer);
+      //   addr %= 40000;
+      //   inx = 0;
+      // }
+    /* USER CODE END WHILE */
+      // if(inx == sizeof(audio))
+      // {
+      //   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+      //   return;
+      // }
+      uint16_t val = ((uint16_t)audio[inx]) * 15;
+      DAC_write_fast_mode(val);
+      inx +=3;
+      inx %= sizeof(audio);
+    }
 }
 
 
@@ -221,26 +279,58 @@ int main(void)
   MX_I2C1_Init();
   MX_DMA_Init();
   MX_SPI1_Init();
+
   MX_TIM3_Init();
-  
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
   /* USER CODE BEGIN 2 */
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
   HAL_TIM_Base_Start_IT(&htim3);
   /* USER CODE END 2 */
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  HAL_StatusTypeDef res =  W25_Reset();
-  if(res == HAL_OK)
-  {
-//      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-  }
-  uint32_t addr = W25_Read_ID();
-  if (addr != -1)
-  {
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-  }
-  
+  //W25_Reset();
 
+//  W25_Write_Enable();
+  //write_audio(audio, 0);
+//  W25_Write_Disable();
+
+  //fill_buffer(buffer, sizeof(buffer), addr);
+  addr+=sizeof(buffer);
+
+
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+  // for(int i = 0; i < 100; i++)
+  // {
+  //   uint8_t rx;
+  //   W25_Read_Data(i, &rx);
+
+  //   if(rx == data[i])
+  //     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+  //   else 
+  //     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+  // } 
+
+//  W25qxx_Init();
+//  W25qxx_EraseBlock(0);
+
+  //W25qxx_WritePage(data, 0, 0, sizeof(data));
+
+//  for(int i = 0; i < 100; i++)
+//  {
+//    W25qxx_WriteByte(data[i], i);
+//  }
+
+//  for(int i = 0; i < 100; i++)
+  // {
+  //   uint8_t rx_data[1];
+  //   W25qxx_ReadByte(rx_data, i);
+  //   if(rx_data[0] == data[i])
+  //   {
+  //     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+  //   }
+  //   else{
+  //     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+  //   }
+  // }
 
   while (1)
   {
