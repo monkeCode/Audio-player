@@ -56,12 +56,12 @@
 /* USER CODE BEGIN PV */
 uint8_t low_byte(uint16_t x)
 {
-  return ((uint8_t)(x%256));
+  return ((uint8_t)(x & 0xFF));
 } 
 
 uint8_t high_byte( uint16_t x)
 {
-  return ((uint8_t)(x / 256));
+  return ((uint8_t)(x >> 8));
 } 
 /* USER CODE END PV */
 
@@ -104,7 +104,7 @@ HAL_StatusTypeDef DAC_write_fast_mode(uint16_t value)
     buffer[0] += high_byte(value) & 0b00001111; // старшие биты
     buffer[1] = low_byte(value);  // младшие
 
-      return HAL_I2C_Master_Transmit(&hi2c1, dac_addr << 1, buffer, sizeof(buffer), HAL_MAX_DELAY);
+      return HAL_I2C_Master_Transmit(&hi2c1, dac_addr << 1, buffer, sizeof(buffer), 500);
 }
 
 
@@ -239,14 +239,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
       //   inx = 0;
       // }
     /* USER CODE END WHILE */
-      // if(inx == sizeof(audio))
+      // if(inx >= sizeof(audio))
       // {
       //   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
       //   return;
       // }
-      uint16_t val = ((uint16_t)audio[inx]) * 15;
+      uint16_t val = ((uint16_t)audio[inx]) << 1;
       DAC_write_fast_mode(val);
-      inx +=3;
+      inx +=1;
       inx %= sizeof(audio);
     }
 }
@@ -294,7 +294,7 @@ int main(void)
 //  W25_Write_Disable();
 
   //fill_buffer(buffer, sizeof(buffer), addr);
-  addr+=sizeof(buffer);
+  //addr+=sizeof(buffer);
 
 
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
@@ -335,6 +335,9 @@ int main(void)
   while (1)
   {
       //HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_0);
+      //DAC_write_fast_mode(3000*a);
+      //a = 1 - a; 
+
   }
   /* USER CODE END 3 */
 }
