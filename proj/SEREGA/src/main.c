@@ -27,7 +27,13 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#define    W25_ENABLE_RESET  0x66
+#define    W25_RESET  0x99
+#define    W25_READ  0x03
+#define    W25_GET_JEDEC_ID  0x9f
 
+#define mem_pin_set() HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET)
+#define mem_pin_reset() HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET)
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -100,17 +106,93 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   if (htim->Instance == TIM3)
     {
     /* USER CODE END WHILE */
-      //if(inx == sizeof(audio))
-      //{
-      //  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-      //  return;
-      //}
-      uint16_t val = ((uint16_t)audio[inx]) * 16;
-      DAC_write_fast_mode(val);
+      // if(inx == sizeof(audio))
+      // {
+      //   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+      //   return;
+      // }
+      uint16_t val = ((uint16_t)audio[inx]) * 1;
+//      DAC_write_fast_mode(val);
       inx +=3;
       inx %= sizeof(audio);
     }
 }
+
+
+HAL_StatusTypeDef read_memory(uint8_t* buffer, uint8_t size)
+{
+  return HAL_SPI_Receive(&hspi1, buffer, size, 500);
+}
+
+HAL_StatusTypeDef write_memory(uint8_t* data, uint8_t size)
+{
+  return HAL_SPI_Transmit(&hspi1, data, size, 500);
+} 
+
+HAL_StatusTypeDef W25_Reset(void)
+{
+  uint8_t tx_buf[2];
+  mem_pin_set();
+  tx_buf[0] = W25_ENABLE_RESET;
+  tx_buf[1] = W25_RESET;
+  HAL_StatusTypeDef res = write_memory(tx_buf, 2);
+//  HAL_Delay(500);
+  mem_pin_reset();
+  return res;
+}
+
+uint32_t W25_Read_ID(void)
+{
+  uint8_t dt[3];
+  uint8_t tx_buf[0];
+  tx_buf[0] = W25_GET_JEDEC_ID;
+  mem_pin_set();
+  //HAL_StatusTypeDef status = HAL_SPI_TransmitReceive(&hspi1, tx_buf, dt, 1, 500);
+  HAL_StatusTypeDef status =  write_memory(tx_buf, 1);
+  if (status == HAL_OK)
+  {
+   status = read_memory(dt, 3);
+  }
+  mem_pin_reset();
+  if (status == HAL_OK)
+    return (dt[0] << 16) | (dt[1] << 8) | dt[2];
+  return -1;
+}
+
+HAL_StatusTypeDef W25_Read_Data(uint32_t addr, uint8_t* data, uint32_t sz)
+{
+  uint8_t tx_buf[4];
+  mem_pin_set();
+  tx_buf[0] = W25_READ;
+  tx_buf[1] = (addr >> 16) & 0xFF;
+  tx_buf[2] = (addr >> 8) & 0xFF;
+  tx_buf[3] = addr & 0xFF;
+  HAL_StatusTypeDef res =  write_memory(tx_buf, 4);
+  if(res == HAL_OK)
+  {
+    res = read_memory(data, sz);
+  }
+  mem_pin_reset();
+  return res;
+}
+
+HAL_StatusTypeDef W25_Write_Data(uint32_t addr, uint8_t* data, uint32_t sz)
+{
+  uint8_t tx_buf[4];
+  mem_pin_set();
+  tx_buf[0] = W25_WRITE;
+  tx_buf[1] = (addr >> 16) & 0xFF;
+  tx_buf[2] = (addr >> 8) & 0xFF;
+  tx_buf[3] = addr & 0xFF;
+  HAL_StatusTypeDef res =  write_memory(tx_buf, 4);
+  if(res == HAL_OK)
+  {
+    res = read_memory(data, sz);
+  }
+  mem_pin_reset();
+  return res;
+}
+
 
 /**
   * @brief  The application entry point.
@@ -126,7 +208,6 @@ int main(void)
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
   /* USER CODE BEGIN Init */
   /* USER CODE END Init */
   /* Configure the system clock */
@@ -142,15 +223,28 @@ int main(void)
   MX_SPI1_Init();
   MX_TIM3_Init();
   
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start_IT(&htim3);
   /* USER CODE END 2 */
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  HAL_StatusTypeDef res =  W25_Reset();
+  if(res == HAL_OK)
+  {
+//      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+  }
+  uint32_t addr = W25_Read_ID();
+  if (addr != -1)
+  {
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+  }
+  
+
 
   while (1)
   {
-
+      //HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_0);
   }
   /* USER CODE END 3 */
 }
@@ -203,6 +297,7 @@ void Error_Handler(void)
   while (1)
   {
     HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+    HAL_Delay(500);
   }
   /* USER CODE END Error_Handler_Debug */
 }
