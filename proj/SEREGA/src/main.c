@@ -91,7 +91,7 @@ HAL_StatusTypeDef DAC_write_dma(uint16_t value)
 {
   uint8_t buffer[2]; 
     buffer[0] = 0b00000000; 
-    buffer[0] += high_byte(value); // старшие биты
+    buffer[0] += high_byte(value) & 0b00001111; // старшие биты
     buffer[1] = low_byte(value);  // младшие
 
       return HAL_I2C_Master_Transmit_DMA(&hi2c1, dac_addr << 1, buffer, sizeof(buffer));
@@ -204,10 +204,10 @@ void write_audio(uint8_t* audio,  uint32_t address_start)
   uint32_t addr = address_start;
   for(int i = 0; i < sizeof(audio); i+=256)
   {
-    uint8_t size = 255;
-    if(sizeof(audio) - i > 256)
+    uint16_t size = 256;
+    if(sizeof(audio) - i > size)
       size = sizeof(audio) - i;
-    W25_Write_Data(addr, audio[i], size);
+    W25_Write_Data(addr, audio+i, size);
     addr += size;
   }
 }
@@ -216,14 +216,16 @@ void fill_buffer(uint8_t* buffer, uint16_t buffer_size, uint32_t addr_start)
 {
   for(int i = 0; i < buffer_size; i++)
   {
-    uint8_t rx;
-    W25_Read_Data(addr_start, &rx);
-    buffer[i] = rx;
+    uint8_t rx[1];
+    W25_Read_Data(addr_start, rx);
+    //W25qxx_ReadByte(rx, addr_start);
+    buffer[i] = rx[0];
     addr_start += 1;
   }
+  
 }
 
-uint8_t buffer[256];
+uint8_t buffer[2048];
 uint32_t addr = 0;
 uint32_t inx = 0;
 
@@ -231,23 +233,29 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   if (htim->Instance == TIM3)
     {
-      // if(inx >= sizeof(buffer))
-      // {
-      //   fill_buffer(buffer, sizeof(buffer), addr);
-      //   addr += sizeof(buffer);
-      //   addr %= 40000;
-      //   inx = 0;
-      // }
+      if(inx >= sizeof(buffer))
+      {
+        fill_buffer(buffer, sizeof(buffer), addr);
+        addr += sizeof(buffer);
+        addr %= 40000;
+        inx = 0;
+      }
     /* USER CODE END WHILE */
       // if(inx >= sizeof(audio))
       // {
       //   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
       //   return;
       // }
-      uint16_t val = ((uint16_t)audio[inx]) << 1;
+      if(buffer[inx] == audio[inx+addr-sizeof(buffer)])
+      {
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+      }
+      else 
+      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+      uint16_t val = ((uint16_t)buffer[inx]) << 1;
       DAC_write_fast_mode(val);
       inx +=1;
-      inx %= sizeof(audio);
+      //inx %= sizeof(audio);
     }
 }
 
@@ -280,6 +288,19 @@ int main(void)
   MX_DMA_Init();
   MX_SPI1_Init();
 
+  W25qxx_Init();
+  //W25qxx_EraseChip();
+
+
+  //W25qxx_WriteSector(audio, 0,0, sizeof(audio));
+
+  //W25_Write_Enable();
+  //write_audio(audio, 0);
+  //W25_Write_Disable();
+
+  fill_buffer(buffer, sizeof(buffer), addr);
+  addr+=sizeof(buffer);
+
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
@@ -289,12 +310,7 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   //W25_Reset();
 
-//  W25_Write_Enable();
-  //write_audio(audio, 0);
-//  W25_Write_Disable();
 
-  //fill_buffer(buffer, sizeof(buffer), addr);
-  //addr+=sizeof(buffer);
 
 
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);

@@ -184,7 +184,8 @@ uint8_t W25qxx_Init(void)
 	#endif
 	
 	id = W25qxx_ReadID();
-
+	w25qxx.ID = W25Q16;
+	w25qxx.BlockCount = 32;
 	#if (INIT_DEBUG == 1)
 	snprintf(buf, 64, "ID:0x%lX\n", id);
 	HAL_UART_Transmit(DEBUG_UART, (uint8_t*)buf, strlen(buf), 1000);
